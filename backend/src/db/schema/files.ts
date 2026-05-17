@@ -1,7 +1,7 @@
 import { pgTable, text, integer, timestamp } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
-import { usersTable } from "./users.js";
+import { usersTable } from "./users";
 
 export const filesTable = pgTable("files", {
   id: text("id").primaryKey(),
