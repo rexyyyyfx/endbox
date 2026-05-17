@@ -225,7 +225,7 @@ export function ChatWindow({ conversationId, onClose }: Props) {
 
       {/* ── Header ── */}
       <div className="flex items-center gap-3 px-4 py-3 shrink-0"
-        style={{ background: 'var(--surface)', borderBottom: '1px solid var(--border)' }}>
+        style={{ background: 'var(--glass-1)', backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)', borderBottom: '1px solid var(--glass-border)' }}>
         <div className="relative">
           <Avatar name={otherName} avatarUrl={otherUser?.avatarUrl} size={42} />
           {conv?.otherUserOnline && (
@@ -258,7 +258,7 @@ export function ChatWindow({ conversationId, onClose }: Props) {
               {headerMenu && (
                 <motion.div initial={{ opacity: 0, scale: 0.92, y: -6 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.92, y: -6 }}
                   className="absolute right-0 top-10 rounded-2xl shadow-2xl overflow-hidden z-50 min-w-[180px]"
-                  style={{ background: 'var(--card)', border: '1px solid var(--border)' }}
+                  style={{ background: 'var(--glass-2)', backdropFilter: 'blur(16px)', WebkitBackdropFilter: 'blur(16px)', border: '1px solid var(--glass-border)' }}
                   onClick={e => e.stopPropagation()}>
                   {onClose && (
                     <button onClick={() => { onClose(); setHeaderMenu(false); }}
@@ -281,7 +281,7 @@ export function ChatWindow({ conversationId, onClose }: Props) {
       <AnimatePresence>
         {infoOpen && (
           <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }}
-            className="overflow-hidden shrink-0" style={{ borderBottom: '1px solid var(--border)', background: 'var(--surface)' }}>
+            className="overflow-hidden shrink-0" style={{ borderBottom: '1px solid var(--glass-border)', background: 'var(--glass-1)', backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)' }}>
             <div className="flex items-center justify-between px-4 py-3">
               <div className="flex items-center gap-2">
                 <Lock size={13} style={{ color: 'var(--accent)' }} />
@@ -301,7 +301,7 @@ export function ChatWindow({ conversationId, onClose }: Props) {
           <div className="space-y-4 pt-4">
             {[60,40,72,48,56].map((w, i) => (
               <div key={i} className={`flex ${i % 2 === 0 ? 'justify-start' : 'justify-end'}`}>
-                <div className="h-9 rounded-3xl animate-pulse" style={{ width: `${w}%`, background: 'var(--elevated)', maxWidth: 240 }} />
+                <div className="h-9 rounded-3xl animate-pulse" style={{ width: `${w}%`, background: 'var(--glass-3)', maxWidth: 240 }} />
               </div>
             ))}
           </div>
@@ -336,7 +336,7 @@ export function ChatWindow({ conversationId, onClose }: Props) {
               <div key={msg.id}>
                 {showDate && (
                   <div className="flex items-center justify-center my-4">
-                    <span className="text-xs px-3 py-1 rounded-full" style={{ color: 'var(--muted)', background: 'var(--elevated)' }}>
+                    <span className="text-xs px-3 py-1 rounded-full" style={{ color: 'var(--muted)', background: 'var(--glass-3)' }}>
                       {formatDate(msg.createdAt)}
                     </span>
                   </div>
@@ -360,7 +360,7 @@ export function ChatWindow({ conversationId, onClose }: Props) {
                     {/* Reply preview */}
                     {msg.replyTo && (
                       <div className={`text-xs mb-1 px-3 py-1.5 rounded-2xl max-w-full truncate ${isOwn ? 'self-end' : 'self-start'}`}
-                        style={{ background: 'var(--elevated)', color: 'var(--muted)', borderLeft: `2px solid var(--accent)` }}>
+                        style={{ background: 'var(--glass-3)', color: 'var(--muted)', borderLeft: `2px solid var(--accent)` }}>
                         {decryptedTexts[msg.replyTo.id] ?? '(encrypted)'}
                       </div>
                     )}
@@ -419,7 +419,7 @@ export function ChatWindow({ conversationId, onClose }: Props) {
         {typingList.length > 0 && (
           <div className="flex justify-start items-end gap-2 mt-3">
             <Avatar name={otherName} avatarUrl={otherUser?.avatarUrl} size={28} />
-            <div className="px-4 py-3 rounded-3xl" style={{ background: 'var(--elevated)' }}>
+            <div className="px-4 py-3 rounded-3xl" style={{ background: 'var(--glass-3)' }}>
               <div className="flex items-center gap-1">
                 {[0,1,2].map(i => (
                   <motion.div key={i} animate={{ opacity: [0.3,1,0.3], y: [0,-3,0] }}
@@ -437,7 +437,7 @@ export function ChatWindow({ conversationId, onClose }: Props) {
             <motion.button initial={{ scale: 0 }} animate={{ scale: 1 }} exit={{ scale: 0 }}
               onClick={() => messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })}
               className="fixed bottom-24 right-6 w-9 h-9 rounded-full flex items-center justify-center shadow-xl z-10"
-              style={{ background: 'var(--card)', border: '1px solid var(--border)' }}>
+              style={{ background: 'var(--glass-2)', backdropFilter: 'blur(16px)', WebkitBackdropFilter: 'blur(16px)', border: '1px solid var(--glass-border)' }}>
               <ChevronDown size={16} className="text-white" />
             </motion.button>
           )}
@@ -453,8 +453,8 @@ export function ChatWindow({ conversationId, onClose }: Props) {
             style={{
               left: contextMenu.x,
               ...(contextMenu.fromBottom ? { bottom: contextMenu.y } : { top: contextMenu.y }),
-              background: 'var(--card)',
-              border: '1px solid var(--border)'
+              background: 'var(--glass-2)', backdropFilter: 'blur(16px)', WebkitBackdropFilter: 'blur(16px)',
+              border: '1px solid var(--glass-border)'
             }}
             onClick={e => e.stopPropagation()}>
             {buildContextItems().map((item, i, arr) => (
@@ -479,7 +479,7 @@ export function ChatWindow({ conversationId, onClose }: Props) {
         {replyTo && (
           <motion.div initial={{ y: 16, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: 16, opacity: 0 }}
             className="px-4 py-2.5 flex items-center gap-3 shrink-0"
-            style={{ borderTop: '1px solid var(--border)', background: 'var(--surface)' }}>
+            style={{ borderTop: '1px solid var(--glass-border)', background: 'var(--glass-1)', backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)' }}>
             <Reply size={14} style={{ color: 'var(--accent)' }} className="shrink-0" />
             <div className="flex-1 min-w-0">
               <p className="text-xs font-semibold" style={{ color: 'var(--accent)' }}>Replying</p>
@@ -493,7 +493,7 @@ export function ChatWindow({ conversationId, onClose }: Props) {
         {editingMsg && (
           <motion.div initial={{ y: 16, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: 16, opacity: 0 }}
             className="px-4 py-2.5 flex items-center gap-3 shrink-0"
-            style={{ borderTop: '1px solid var(--border)', background: 'var(--surface)' }}>
+            style={{ borderTop: '1px solid var(--glass-border)', background: 'var(--glass-1)', backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)' }}>
             <Edit2 size={14} style={{ color: 'var(--accent)' }} className="shrink-0" />
             <p className="flex-1 text-sm" style={{ color: 'var(--accent)' }}>Editing message</p>
             <button onClick={() => { setEditingMsg(null); setEditText(''); setText(''); }}
@@ -506,7 +506,7 @@ export function ChatWindow({ conversationId, onClose }: Props) {
 
       {/* ── Input bar ── */}
       <div className="px-3 py-3 flex items-end gap-2 shrink-0"
-        style={{ borderTop: '1px solid var(--border)', background: 'var(--surface)' }}>
+        style={{ borderTop: '1px solid var(--glass-border)', background: 'var(--glass-1)', backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)' }}>
         <button onClick={() => fileRef.current?.click()}
           className="p-2.5 rounded-full transition-colors hover:bg-white/5 shrink-0 mb-0.5"
           style={{ color: 'var(--muted)' }}>
@@ -515,7 +515,7 @@ export function ChatWindow({ conversationId, onClose }: Props) {
         <input ref={fileRef} type="file" className="hidden" />
 
         <div className="flex-1 flex items-end rounded-3xl overflow-hidden"
-          style={{ background: 'var(--elevated)', border: '1.5px solid var(--border)' }}>
+          style={{ background: 'var(--glass-3)', border: '1.5px solid var(--border)' }}>
           <textarea ref={inputRef}
             value={editingMsg ? editText : text}
             onChange={e => editingMsg ? setEditText(e.target.value) : setText(e.target.value)}

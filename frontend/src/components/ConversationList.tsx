@@ -47,10 +47,10 @@ export function ConversationList({ conversations, activeId, onSelect, isLoading 
       <div className="p-3 space-y-1">
         {[1,2,3,4,5].map((i) => (
           <div key={i} className="flex items-center gap-3 px-2 py-2.5 rounded-2xl">
-            <div className="w-14 h-14 rounded-full shrink-0 animate-pulse" style={{ background: 'var(--elevated)' }} />
+            <div className="w-14 h-14 rounded-full shrink-0 animate-pulse" style={{ background: 'var(--glass-3)' }} />
             <div className="flex-1 space-y-2">
-              <div className="h-3 rounded-full animate-pulse w-28" style={{ background: 'var(--elevated)' }} />
-              <div className="h-2.5 rounded-full animate-pulse w-40" style={{ background: 'var(--elevated)' }} />
+              <div className="h-3 rounded-full animate-pulse w-28" style={{ background: 'var(--glass-3)' }} />
+              <div className="h-2.5 rounded-full animate-pulse w-40" style={{ background: 'var(--glass-3)' }} />
             </div>
           </div>
         ))}
@@ -61,7 +61,7 @@ export function ConversationList({ conversations, activeId, onSelect, isLoading 
   if (conversations.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center h-64 gap-4 p-8 text-center">
-        <div className="w-16 h-16 rounded-full flex items-center justify-center" style={{ background: 'var(--elevated)' }}>
+        <div className="w-16 h-16 rounded-full flex items-center justify-center" style={{ background: 'var(--glass-3)' }}>
           <MessageCircle size={26} style={{ color: 'var(--muted)' }} />
         </div>
         <div>
