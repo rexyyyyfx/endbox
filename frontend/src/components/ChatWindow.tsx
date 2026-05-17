@@ -1,18 +1,11 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Send, Paperclip, Lock, MoreHorizontal, X, Edit2, Trash2, ChevronDown, Reply } from 'lucide-react';
+import { Send, Lock, MoreHorizontal, X, Edit2, Trash2, ChevronDown, Reply, Copy, Slash, Info, Paperclip } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import {
-  useGetConversation,
-  useGetPublicKey,
-  useGetMessages,
-  useSendMessage,
-  useEditMessage,
-  useRemoveMessage,
-  useRemoveMessageForAll,
-  getGetMessagesQueryKey,
-  getGetConversationQueryKey,
-  getGetPublicKeyQueryKey,
+  useGetConversation, useGetPublicKey, useGetMessages,
+  useSendMessage, useEditMessage, useRemoveMessage, useRemoveMessageForAll,
+  getGetMessagesQueryKey, getGetConversationQueryKey, getGetPublicKeyQueryKey,
 } from '../lib/api';
 import type { Message } from '../lib/api';
 import { useAuthStore } from '../store/auth';
@@ -20,23 +13,30 @@ import { useChatStore } from '../store/chat';
 import { joinConversation, leaveConversation, emitTyping, emitRead } from '../lib/socket';
 import { importPublicKey, deriveSharedSecret, encryptMessage, decryptMessage } from '../lib/crypto';
 
-interface ChatWindowProps {
-  conversationId: string;
-}
+interface Props { conversationId: string; onClose?: () => void; }
 
-function formatTime(dateStr: string) {
-  return new Date(dateStr).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-}
-function formatDate(dateStr: string) {
-  const d = new Date(dateStr);
-  const now = new Date();
-  const diff = now.getTime() - d.getTime();
+function formatTime(d: string) { return new Date(d).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }); }
+function formatDate(d: string) {
+  const date = new Date(d), now = new Date(), diff = now.getTime() - date.getTime();
   if (diff < 86400000) return 'Today';
   if (diff < 172800000) return 'Yesterday';
-  return d.toLocaleDateString([], { month: 'long', day: 'numeric' });
+  return date.toLocaleDateString([], { month: 'long', day: 'numeric' });
 }
 
-export function ChatWindow({ conversationId }: ChatWindowProps) {
+function Avatar({ name, avatarUrl, size = 32 }: { name: string; avatarUrl?: string | null; size?: number }) {
+  return (
+    <div className="rounded-full overflow-hidden flex items-center justify-center shrink-0"
+      style={{ width: size, height: size, background: avatarUrl ? undefined : 'linear-gradient(135deg,#f09433,#dc2743,#bc1888)' }}>
+      {avatarUrl
+        ? <img src={avatarUrl} alt="" className="w-full h-full object-cover" />
+        : <span className="text-white font-bold" style={{ fontSize: size * 0.33 }}>{name.slice(0,2).toUpperCase()}</span>}
+    </div>
+  );
+}
+
+type MenuItem = { label: string; icon: React.ReactNode; action: () => void; danger?: boolean; };
+
+export function ChatWindow({ conversationId, onClose }: Props) {
   const queryClient = useQueryClient();
   const { user, privateKey } = useAuthStore();
   const { messages: storeMessages, addMessage, setMessages, typingUsers } = useChatStore();
@@ -49,66 +49,50 @@ export function ChatWindow({ conversationId }: ChatWindowProps) {
   const [replyTo, setReplyTo] = useState<Message | null>(null);
   const [editingMsg, setEditingMsg] = useState<Message | null>(null);
   const [editText, setEditText] = useState('');
-  const [contextMenu, setContextMenu] = useState<{ msg: Message; x: number; y: number } | null>(null);
+  const [contextMenu, setContextMenu] = useState<{ msg: Message; x: number; y: number; fromBottom: boolean } | null>(null);
+  const [headerMenu, setHeaderMenu] = useState(false);
   const [sharedKey, setSharedKey] = useState<CryptoKey | null>(null);
   const [decryptedTexts, setDecryptedTexts] = useState<Record<string, string>>({});
   const [atBottom, setAtBottom] = useState(true);
+  const [infoOpen, setInfoOpen] = useState(false);
 
-  const { data: conv } = useGetConversation(conversationId, {
-    query: { queryKey: getGetConversationQueryKey(conversationId), enabled: !!conversationId },
-  });
+  const { data: conv } = useGetConversation(conversationId, { query: { queryKey: getGetConversationQueryKey(conversationId), enabled: !!conversationId } });
   const otherUserId = conv?.otherUser?.id ?? '';
-  const { data: keyRecord } = useGetPublicKey(otherUserId, {
-    query: { queryKey: getGetPublicKeyQueryKey(otherUserId), enabled: !!otherUserId },
-  });
-  const { data: msgPage, isLoading } = useGetMessages(conversationId, {
-    query: { queryKey: getGetMessagesQueryKey(conversationId), enabled: !!conversationId },
-  });
+  const { data: keyRecord } = useGetPublicKey(otherUserId, { query: { queryKey: getGetPublicKeyQueryKey(otherUserId), enabled: !!otherUserId } });
+  const { data: msgPage, isLoading } = useGetMessages(conversationId, { query: { queryKey: getGetMessagesQueryKey(conversationId), enabled: !!conversationId } });
 
   const sendMessage = useSendMessage();
   const editMessage = useEditMessage();
   const removeMessage = useRemoveMessage();
   const removeForAll = useRemoveMessageForAll();
 
-  useEffect(() => {
-    joinConversation(conversationId);
-    emitRead(conversationId);
-    return () => leaveConversation(conversationId);
-  }, [conversationId]);
-
-  useEffect(() => {
-    if (msgPage?.messages) setMessages(conversationId, msgPage.messages);
-  }, [msgPage, conversationId, setMessages]);
+  useEffect(() => { joinConversation(conversationId); emitRead(conversationId); return () => leaveConversation(conversationId); }, [conversationId]);
+  useEffect(() => { if (msgPage?.messages) setMessages(conversationId, msgPage.messages); }, [msgPage, conversationId, setMessages]);
 
   useEffect(() => {
     if (!privateKey || !keyRecord?.publicKey) { setSharedKey(null); return; }
     (async () => {
-      try {
-        const theirPubKey = await importPublicKey(keyRecord.publicKey);
-        const sk = await deriveSharedSecret(privateKey, theirPubKey);
-        setSharedKey(sk);
-      } catch { setSharedKey(null); }
+      try { const pk = await importPublicKey(keyRecord.publicKey); setSharedKey(await deriveSharedSecret(privateKey, pk)); }
+      catch { setSharedKey(null); }
     })();
   }, [privateKey, keyRecord]);
 
   const messages = storeMessages[conversationId] ?? [];
   useEffect(() => {
     if (!sharedKey || messages.length === 0) return;
-    const pending = messages.filter((m) => m.encryptedContent && m.iv && !decryptedTexts[m.id] && !m.isDeleted);
-    if (pending.length === 0) return;
+    const pending = messages.filter(m => m.encryptedContent && m.iv && !decryptedTexts[m.id] && !m.isDeleted);
+    if (!pending.length) return;
     (async () => {
       const results: Record<string, string> = {};
       for (const m of pending) {
         try { results[m.id] = await decryptMessage(sharedKey, m.encryptedContent!, m.iv!); }
-        catch { results[m.id] = '[Encrypted message]'; }
+        catch { results[m.id] = '[Encrypted]'; }
       }
-      setDecryptedTexts((prev) => ({ ...prev, ...results }));
+      setDecryptedTexts(prev => ({ ...prev, ...results }));
     })();
-  }, [sharedKey, messages]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [sharedKey, messages]); // eslint-disable-line
 
-  useEffect(() => {
-    if (atBottom) messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, atBottom]);
+  useEffect(() => { if (atBottom) messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages, atBottom]);
 
   const handleScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
     const el = e.currentTarget;
@@ -116,19 +100,14 @@ export function ChatWindow({ conversationId }: ChatWindowProps) {
   }, []);
 
   async function handleSend() {
-    if (!text.trim() && !editingMsg) return;
     if (editingMsg) { await handleEditSubmit(); return; }
-    if (!sharedKey) return;
+    if (!text.trim() || !sharedKey) return;
     try {
       const { encryptedContent, iv } = await encryptMessage(sharedKey, text.trim());
-      const result = await sendMessage.mutateAsync({
-        conversationId,
-        data: { type: 'text', encryptedContent, iv, replyToId: replyTo?.id },
-      });
+      const result = await sendMessage.mutateAsync({ conversationId, data: { type: 'text', encryptedContent, iv, replyToId: replyTo?.id } });
       addMessage(conversationId, result);
-      setDecryptedTexts((prev) => ({ ...prev, [result.id]: text.trim() }));
-      setText('');
-      setReplyTo(null);
+      setDecryptedTexts(prev => ({ ...prev, [result.id]: text.trim() }));
+      setText(''); setReplyTo(null);
       queryClient.invalidateQueries({ queryKey: getGetConversationQueryKey(conversationId) });
     } catch {}
   }
@@ -137,10 +116,8 @@ export function ChatWindow({ conversationId }: ChatWindowProps) {
     if (!editingMsg || !sharedKey || !editText.trim()) return;
     try {
       const { encryptedContent, iv } = await encryptMessage(sharedKey, editText.trim());
-      const result = await editMessage.mutateAsync({
-        conversationId, messageId: editingMsg.id, data: { encryptedContent, iv },
-      });
-      setDecryptedTexts((prev) => ({ ...prev, [result.id]: editText.trim() }));
+      const result = await editMessage.mutateAsync({ conversationId, messageId: editingMsg.id, data: { encryptedContent, iv } });
+      setDecryptedTexts(prev => ({ ...prev, [result.id]: editText.trim() }));
       queryClient.invalidateQueries({ queryKey: getGetMessagesQueryKey(conversationId) });
     } catch {}
     setEditingMsg(null); setEditText(''); setText('');
@@ -153,60 +130,191 @@ export function ChatWindow({ conversationId }: ChatWindowProps) {
     typingTimeout.current = setTimeout(() => {}, 2000);
   }
 
-  function handleContextMenu(e: React.MouseEvent, msg: Message) {
+  function openContextMenu(e: React.MouseEvent | React.TouchEvent, msg: Message) {
     e.preventDefault();
-    // Clamp to viewport
-    const x = Math.min(e.clientX, window.innerWidth - 160);
-    const y = Math.min(e.clientY, window.innerHeight - 180);
-    setContextMenu({ msg, x, y });
+    let x = 0, y = 0;
+    if ('touches' in e && e.touches.length > 0) {
+      x = e.touches[0].clientX;
+      y = e.touches[0].clientY;
+    } else if ('changedTouches' in e && e.changedTouches.length > 0) {
+      x = e.changedTouches[0].clientX;
+      y = e.changedTouches[0].clientY;
+    } else if ('clientX' in e) {
+      x = e.clientX;
+      y = e.clientY;
+    }
+    const menuWidth = 200;
+    const menuHeight = buildContextItemCount(msg) * 48 + 16;
+    // Clamp X so it never goes off screen right
+    x = Math.min(x, window.innerWidth - menuWidth - 8);
+    x = Math.max(x, 8);
+    // If tap is in bottom half, render menu ABOVE tap point
+    const fromBottom = y > window.innerHeight * 0.55;
+    const safeY = fromBottom
+      ? Math.max(window.innerHeight - y, 8)  // distance from bottom
+      : Math.min(y, window.innerHeight - menuHeight - 8);
+    setContextMenu({ msg, x, y: safeY, fromBottom });
   }
 
+  const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  function handleTouchStart(e: React.TouchEvent, msg: Message) {
+    longPressTimer.current = setTimeout(() => {
+      openContextMenu(e, msg);
+    }, 500);
+  }
+
+  function handleTouchEnd() {
+    if (longPressTimer.current) clearTimeout(longPressTimer.current);
+  }
+
+  function buildContextItemCount(msg: Message): number {
+    const isOwn = msg.senderId === user?.id;
+    let count = 1; // reply always
+    if (!msg.isDeleted) count++; // copy
+    if (isOwn && !msg.isDeleted) count++; // edit
+    count++; // delete for me
+    if (isOwn && !msg.isDeleted) count++; // unsend
+    return count;
+  }
+
+  async function handleUnsend() {
+    if (!contextMenu) return;
+    await removeForAll.mutateAsync({ conversationId, messageId: contextMenu.msg.id });
+    setContextMenu(null);
+    queryClient.invalidateQueries({ queryKey: getGetMessagesQueryKey(conversationId) });
+  }
   async function handleDeleteForMe() {
     if (!contextMenu) return;
     await removeMessage.mutateAsync({ conversationId, messageId: contextMenu.msg.id });
     setContextMenu(null);
     queryClient.invalidateQueries({ queryKey: getGetMessagesQueryKey(conversationId) });
   }
-  async function handleDeleteForAll() {
-    if (!contextMenu) return;
-    await removeForAll.mutateAsync({ conversationId, messageId: contextMenu.msg.id });
-    setContextMenu(null);
-    queryClient.invalidateQueries({ queryKey: getGetMessagesQueryKey(conversationId) });
-  }
   function startEdit(msg: Message) {
     setEditingMsg(msg); setEditText(decryptedTexts[msg.id] ?? ''); setText(decryptedTexts[msg.id] ?? '');
-    setContextMenu(null); inputRef.current?.focus();
+    setContextMenu(null); setTimeout(() => inputRef.current?.focus(), 50);
+  }
+  function copyText(msg: Message) {
+    navigator.clipboard.writeText(decryptedTexts[msg.id] ?? '');
+    setContextMenu(null);
   }
 
-  const typingList = typingUsers[conversationId]?.filter((uid) => uid !== user?.id) ?? [];
+  const typingList = typingUsers[conversationId]?.filter(uid => uid !== user?.id) ?? [];
   const otherUser = conv?.otherUser;
   const otherName = otherUser?.userId ?? '...';
+  const msgCount = messages.length;
+
+  function buildContextItems(): MenuItem[] {
+    if (!contextMenu) return [];
+    const msg = contextMenu.msg;
+    const isOwn = msg.senderId === user?.id;
+    const items: MenuItem[] = [];
+    if (!msg.isDeleted) {
+      items.push({ label: 'Reply', icon: <Reply size={15} />, action: () => { setReplyTo(msg); setContextMenu(null); } });
+      if (!msg.isDeleted) items.push({ label: 'Copy', icon: <Copy size={15} />, action: () => copyText(msg) });
+      if (isOwn && !msg.isDeleted) items.push({ label: 'Edit', icon: <Edit2 size={15} />, action: () => startEdit(msg) });
+    }
+    items.push({ label: 'Delete for me', icon: <Trash2 size={15} />, action: handleDeleteForMe, danger: true });
+    if (isOwn && !msg.isDeleted) items.push({ label: 'Unsend', icon: <Slash size={15} />, action: handleUnsend, danger: true });
+    return items;
+  }
 
   return (
-    <div className="flex flex-col h-full" style={{ background: 'var(--ig-bg)' }} onClick={() => contextMenu && setContextMenu(null)}>
+    <div className="flex flex-col h-full" style={{ background: 'var(--bg)' }}
+      onClick={() => { contextMenu && setContextMenu(null); headerMenu && setHeaderMenu(false); }}>
 
-      {/* Messages */}
-      <div className="flex-1 overflow-y-auto px-4 py-4 space-y-1 relative" onScroll={handleScroll}>
+      {/* ── Header ── */}
+      <div className="flex items-center gap-3 px-4 py-3 shrink-0"
+        style={{ background: 'var(--surface)', borderBottom: '1px solid var(--border)' }}>
+        <div className="relative">
+          <Avatar name={otherName} avatarUrl={otherUser?.avatarUrl} size={42} />
+          {conv?.otherUserOnline && (
+            <div className="absolute bottom-0 right-0 w-3 h-3 rounded-full border-2"
+              style={{ background: 'var(--green)', borderColor: 'var(--surface)' }} />
+          )}
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className="font-bold text-white text-sm truncate">{otherName}</p>
+          <div className="flex items-center gap-1.5">
+            <Lock size={9} style={{ color: 'var(--accent)' }} />
+            <p className="text-xs" style={{ color: 'var(--muted)' }}>
+              {conv?.otherUserOnline ? <span style={{ color: 'var(--green)' }}>Active now</span> : 'End-to-end encrypted'}
+            </p>
+          </div>
+        </div>
+
+        {/* Header actions */}
+        <div className="flex items-center gap-1">
+          <button onClick={(e) => { e.stopPropagation(); setInfoOpen(v => !v); }}
+            className="p-2 rounded-full transition-colors hover:bg-white/5">
+            <Info size={18} style={{ color: 'var(--muted)' }} />
+          </button>
+          <div className="relative">
+            <button onClick={(e) => { e.stopPropagation(); setHeaderMenu(v => !v); }}
+              className="p-2 rounded-full transition-colors hover:bg-white/5">
+              <MoreHorizontal size={18} style={{ color: 'var(--muted)' }} />
+            </button>
+            <AnimatePresence>
+              {headerMenu && (
+                <motion.div initial={{ opacity: 0, scale: 0.92, y: -6 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.92, y: -6 }}
+                  className="absolute right-0 top-10 rounded-2xl shadow-2xl overflow-hidden z-50 min-w-[180px]"
+                  style={{ background: 'var(--card)', border: '1px solid var(--border)' }}
+                  onClick={e => e.stopPropagation()}>
+                  {onClose && (
+                    <button onClick={() => { onClose(); setHeaderMenu(false); }}
+                      className="w-full flex items-center gap-3 px-4 py-3 text-sm transition-colors hover:bg-white/5 text-white">
+                      <X size={15} style={{ color: 'var(--muted)' }} /> Close DM
+                    </button>
+                  )}
+                  <button className="w-full flex items-center gap-3 px-4 py-3 text-sm transition-colors hover:bg-white/5"
+                    style={{ color: 'var(--red)' }}>
+                    <Trash2 size={15} /> Clear chat
+                  </button>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+        </div>
+      </div>
+
+      {/* ── Info panel ── */}
+      <AnimatePresence>
+        {infoOpen && (
+          <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }}
+            className="overflow-hidden shrink-0" style={{ borderBottom: '1px solid var(--border)', background: 'var(--surface)' }}>
+            <div className="flex items-center justify-between px-4 py-3">
+              <div className="flex items-center gap-2">
+                <Lock size={13} style={{ color: 'var(--accent)' }} />
+                <span className="text-xs font-medium" style={{ color: 'var(--text-secondary)' }}>
+                  ECDH P-256 + AES-GCM-256 encryption · {msgCount} messages
+                </span>
+              </div>
+              <button onClick={() => setInfoOpen(false)} style={{ color: 'var(--muted)' }}><X size={14} /></button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ── Messages ── */}
+      <div className="flex-1 overflow-y-auto px-4 py-3 space-y-0.5" onScroll={handleScroll}>
         {isLoading ? (
           <div className="space-y-4 pt-4">
-            {[1,2,3].map((i) => (
-              <div key={i} className={`flex ${i%2===0?'justify-end':'justify-start'}`}>
-                <div className={`h-10 rounded-2xl animate-pulse bg-ig-elevated ${i%2===0?'w-40':'w-52'}`} />
+            {[60,40,72,48,56].map((w, i) => (
+              <div key={i} className={`flex ${i % 2 === 0 ? 'justify-start' : 'justify-end'}`}>
+                <div className="h-9 rounded-3xl animate-pulse" style={{ width: `${w}%`, background: 'var(--elevated)', maxWidth: 240 }} />
               </div>
             ))}
           </div>
         ) : messages.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-full gap-4 text-center py-12">
-            <div className="w-16 h-16 rounded-full overflow-hidden bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center">
-              {otherUser?.avatarUrl ? (
-                <img src={otherUser.avatarUrl} alt="" className="w-full h-full object-cover" />
-              ) : (
-                <span className="text-white text-xl font-bold">{otherName.slice(0,2).toUpperCase()}</span>
-              )}
+          <div className="flex flex-col items-center justify-center h-full gap-5 text-center py-16">
+            <div className="p-1" style={{ background: 'var(--gradient)', borderRadius: '50%' }}>
+              <div className="p-1 rounded-full" style={{ background: 'var(--bg)' }}>
+                <Avatar name={otherName} avatarUrl={otherUser?.avatarUrl} size={72} />
+              </div>
             </div>
             <div>
-              <p className="font-semibold text-white">{otherName}</p>
-              <p className="text-sm text-ig-muted mt-1">Messages are end-to-end encrypted</p>
+              <p className="font-bold text-white text-lg">{otherName}</p>
+              <p className="text-sm mt-1" style={{ color: 'var(--muted)' }}>Say hi! Messages are end-to-end encrypted.</p>
             </div>
           </div>
         ) : (
@@ -214,83 +322,91 @@ export function ChatWindow({ conversationId }: ChatWindowProps) {
             const isOwn = msg.senderId === user?.id;
             const decrypted = decryptedTexts[msg.id];
             const showDate = i === 0 || new Date(msg.createdAt).toDateString() !== new Date(messages[i-1].createdAt).toDateString();
-            const prevOwn = i > 0 && messages[i-1].senderId === msg.senderId;
-            const nextOwn = i < messages.length-1 && messages[i+1].senderId === msg.senderId;
+            const prevSame = i > 0 && messages[i-1].senderId === msg.senderId;
+            const nextSame = i < messages.length - 1 && messages[i+1].senderId === msg.senderId;
+
+            // Bubble border radius logic (Instagram-style grouping)
+            const r = 20;
+            const rs = 4;
+            const borderRadius = isOwn
+              ? `${prevSame ? rs : r}px ${r}px ${nextSame ? rs : r}px ${r}px`
+              : `${r}px ${prevSame ? rs : r}px ${r}px ${nextSame ? rs : r}px`;
 
             return (
               <div key={msg.id}>
                 {showDate && (
                   <div className="flex items-center justify-center my-4">
-                    <span className="text-xs text-ig-muted bg-ig-elevated px-3 py-1 rounded-full">
+                    <span className="text-xs px-3 py-1 rounded-full" style={{ color: 'var(--muted)', background: 'var(--elevated)' }}>
                       {formatDate(msg.createdAt)}
                     </span>
                   </div>
                 )}
 
-                <motion.div
-                  initial={{ opacity: 0, y: 6 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ duration: 0.15 }}
-                  className={`flex ${isOwn ? 'justify-end' : 'justify-start'} ${prevOwn ? 'mt-0.5' : 'mt-3'}`}
-                  onContextMenu={(e) => handleContextMenu(e, msg)}
-                >
-                  {/* Other user avatar (only for first in group) */}
-                  {!isOwn && !nextOwn && (
-                    <div className="w-7 h-7 rounded-full overflow-hidden mr-2 self-end shrink-0 bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center">
-                      {otherUser?.avatarUrl ? (
-                        <img src={otherUser.avatarUrl} alt="" className="w-full h-full object-cover" />
-                      ) : (
-                        <span className="text-white text-[10px] font-bold">{otherName.slice(0,2).toUpperCase()}</span>
-                      )}
+                <motion.div initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.12 }}
+                  className={`flex ${isOwn ? 'justify-end' : 'justify-start'} items-end gap-2 group ${prevSame ? 'mt-0.5' : 'mt-3'}`}
+                  onContextMenu={e => openContextMenu(e, msg)}
+                  onTouchStart={e => handleTouchStart(e, msg)}
+                  onTouchEnd={handleTouchEnd}
+                  onTouchMove={handleTouchEnd}>
+
+                  {/* Other user avatar — only last in group */}
+                  {!isOwn && (
+                    <div className="shrink-0 mb-0.5" style={{ width: 28 }}>
+                      {!nextSame && <Avatar name={otherName} avatarUrl={otherUser?.avatarUrl} size={28} />}
                     </div>
                   )}
-                  {!isOwn && nextOwn && <div className="w-7 mr-2 shrink-0" />}
 
-                  <div className={`max-w-[72%] group ${isOwn ? '' : ''}`}>
+                  <div className={`max-w-[72%] relative ${isOwn ? 'items-end' : 'items-start'} flex flex-col`}>
                     {/* Reply preview */}
                     {msg.replyTo && (
-                      <div className={`text-xs text-ig-muted border-l-2 border-ig-muted/40 pl-2 mb-1 opacity-70 ${isOwn ? 'text-right' : ''}`}>
+                      <div className={`text-xs mb-1 px-3 py-1.5 rounded-2xl max-w-full truncate ${isOwn ? 'self-end' : 'self-start'}`}
+                        style={{ background: 'var(--elevated)', color: 'var(--muted)', borderLeft: `2px solid var(--accent)` }}>
                         {decryptedTexts[msg.replyTo.id] ?? '(encrypted)'}
                       </div>
                     )}
 
-                    <div
-                      className={`relative px-3.5 py-2.5 ${
-                        isOwn
-                          ? 'bg-ig-accent text-white rounded-t-2xl rounded-l-2xl rounded-br-sm'
-                          : 'text-white rounded-t-2xl rounded-r-2xl rounded-bl-sm'
-                        }  ${isOwn && !prevOwn ? 'rounded-tr-2xl' : ''}`}
-                      style={isOwn ? {} : { background: 'var(--ig-elevated)' }}
-                    >
+                    {/* Bubble */}
+                    <div className="relative"
+                      style={{
+                        background: isOwn ? 'var(--accent)' : 'var(--elevated)',
+                        borderRadius,
+                        padding: '10px 14px',
+                        cursor: 'default',
+                      }}>
                       {msg.isDeleted ? (
-                        <p className="text-sm italic opacity-60">Message deleted</p>
+                        <p className="text-sm italic" style={{ color: isOwn ? 'rgba(255,255,255,0.5)' : 'var(--muted)' }}>Message unsent</p>
                       ) : msg.type === 'text' ? (
-                        <p className="text-sm leading-relaxed whitespace-pre-wrap break-words">
+                        <p className="text-sm leading-relaxed whitespace-pre-wrap break-words text-white">
                           {decrypted ?? (
-                            <span className="opacity-50 text-xs italic">
+                            <span className="text-xs italic" style={{ opacity: 0.5 }}>
                               {sharedKey ? 'Decrypting...' : '🔒 Encrypted'}
                             </span>
                           )}
                         </p>
                       ) : (
-                        <p className="text-sm opacity-60">[attachment]</p>
+                        <p className="text-sm text-white/60">[attachment]</p>
                       )}
+                    </div>
 
-                      {/* Timestamp + edited */}
-                      <div className={`flex items-center gap-1 mt-1 ${isOwn ? 'justify-end' : ''}`}>
-                        <span className="text-[10px] opacity-60">{formatTime(msg.createdAt)}</span>
-                        {msg.isEdited && <span className="text-[10px] opacity-50">· edited</span>}
-                      </div>
+                    {/* Time — shown on last in group */}
+                    {!nextSame && (
+                      <span className="text-xs mt-1 px-1" style={{ color: 'var(--muted)' }}>
+                        {formatTime(msg.createdAt)}{msg.isEdited ? ' · edited' : ''}
+                      </span>
+                    )}
 
-                      {/* Hover actions */}
-                      <div className={`absolute ${isOwn ? '-left-16' : '-right-16'} top-1/2 -translate-y-1/2 hidden group-hover:flex items-center gap-1`}>
-                        <button onClick={() => setReplyTo(msg)} className="p-1.5 rounded-full hover:bg-ig-elevated transition-colors text-ig-muted hover:text-white">
-                          <Reply size={14} />
-                        </button>
-                        <button onClick={(e) => handleContextMenu(e, msg)} className="p-1.5 rounded-full hover:bg-ig-elevated transition-colors text-ig-muted hover:text-white">
-                          <MoreHorizontal size={14} />
-                        </button>
-                      </div>
+                    {/* Hover quick actions */}
+                    <div className={`absolute top-1/2 -translate-y-1/2 hidden group-hover:flex items-center gap-0.5 ${isOwn ? '-left-16' : '-right-16'}`}>
+                      <button onClick={() => setReplyTo(msg)}
+                        className="p-1.5 rounded-full transition-colors hover:bg-white/10"
+                        style={{ color: 'var(--muted)' }}>
+                        <Reply size={13} />
+                      </button>
+                      <button onClick={e => openContextMenu(e, msg)}
+                        className="p-1.5 rounded-full transition-colors hover:bg-white/10"
+                        style={{ color: 'var(--muted)' }}>
+                        <MoreHorizontal size={13} />
+                      </button>
                     </div>
                   </div>
                 </motion.div>
@@ -301,12 +417,14 @@ export function ChatWindow({ conversationId }: ChatWindowProps) {
 
         {/* Typing indicator */}
         {typingList.length > 0 && (
-          <div className="flex justify-start mt-3 ml-9">
-            <div className="px-4 py-2.5 rounded-2xl rounded-bl-sm" style={{ background: 'var(--ig-elevated)' }}>
+          <div className="flex justify-start items-end gap-2 mt-3">
+            <Avatar name={otherName} avatarUrl={otherUser?.avatarUrl} size={28} />
+            <div className="px-4 py-3 rounded-3xl" style={{ background: 'var(--elevated)' }}>
               <div className="flex items-center gap-1">
-                {[0,1,2].map((i) => (
-                  <motion.div key={i} animate={{ opacity: [0.3,1,0.3], y: [0,-3,0] }} transition={{ duration: 1, delay: i*0.2, repeat: Infinity }}
-                    className="w-1.5 h-1.5 rounded-full bg-ig-muted" />
+                {[0,1,2].map(i => (
+                  <motion.div key={i} animate={{ opacity: [0.3,1,0.3], y: [0,-3,0] }}
+                    transition={{ duration: 1.2, delay: i * 0.2, repeat: Infinity }}
+                    className="w-1.5 h-1.5 rounded-full" style={{ background: 'var(--muted)' }} />
                 ))}
               </div>
             </div>
@@ -318,105 +436,104 @@ export function ChatWindow({ conversationId }: ChatWindowProps) {
           {!atBottom && (
             <motion.button initial={{ scale: 0 }} animate={{ scale: 1 }} exit={{ scale: 0 }}
               onClick={() => messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })}
-              className="absolute bottom-4 right-4 w-9 h-9 rounded-full bg-ig-card border border-ig flex items-center justify-center shadow-lg"
-              style={{ borderColor: 'var(--ig-border)', background: 'var(--ig-card)' }}
-            >
+              className="fixed bottom-24 right-6 w-9 h-9 rounded-full flex items-center justify-center shadow-xl z-10"
+              style={{ background: 'var(--card)', border: '1px solid var(--border)' }}>
               <ChevronDown size={16} className="text-white" />
             </motion.button>
           )}
         </AnimatePresence>
-
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Context menu */}
+      {/* ── Context menu ── */}
       <AnimatePresence>
         {contextMenu && (
-          <motion.div
-            initial={{ opacity: 0, scale: 0.92 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.92 }}
-            className="fixed z-50 rounded-xl shadow-xl overflow-hidden min-w-[160px]"
-            style={{ left: contextMenu.x, top: contextMenu.y, background: 'var(--ig-card)', border: '1px solid var(--ig-border)' }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <button onClick={() => { setReplyTo(contextMenu.msg); setContextMenu(null); }} className="w-full text-left px-4 py-3 text-sm text-white hover:bg-ig-elevated flex items-center gap-3 transition-colors">
-              <Reply size={14} className="text-ig-muted" /> Reply
-            </button>
-            {contextMenu.msg.senderId === user?.id && !contextMenu.msg.isDeleted && (
-              <button onClick={() => startEdit(contextMenu.msg)} className="w-full text-left px-4 py-3 text-sm text-white hover:bg-ig-elevated flex items-center gap-3 transition-colors">
-                <Edit2 size={14} className="text-ig-muted" /> Edit
-              </button>
-            )}
-            <div className="h-px" style={{ background: 'var(--ig-border)' }} />
-            <button onClick={handleDeleteForMe} className="w-full text-left px-4 py-3 text-sm text-red-400 hover:bg-ig-elevated flex items-center gap-3 transition-colors">
-              <Trash2 size={14} /> Delete for me
-            </button>
-            {contextMenu.msg.senderId === user?.id && (
-              <button onClick={handleDeleteForAll} className="w-full text-left px-4 py-3 text-sm text-red-500 hover:bg-ig-elevated flex items-center gap-3 transition-colors">
-                <Trash2 size={14} /> Delete for everyone
-              </button>
-            )}
+          <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.9 }}
+            className="fixed z-50 rounded-2xl shadow-2xl overflow-hidden min-w-[200px]"
+            style={{
+              left: contextMenu.x,
+              ...(contextMenu.fromBottom ? { bottom: contextMenu.y } : { top: contextMenu.y }),
+              background: 'var(--card)',
+              border: '1px solid var(--border)'
+            }}
+            onClick={e => e.stopPropagation()}>
+            {buildContextItems().map((item, i, arr) => (
+              <div key={item.label}>
+                {i > 0 && arr[i-1].danger !== item.danger && (
+                  <div className="h-px mx-2" style={{ background: 'var(--border)' }} />
+                )}
+                <button onClick={item.action}
+                  className="w-full flex items-center gap-3 px-4 py-3 text-sm transition-colors hover:bg-white/5"
+                  style={{ color: item.danger ? 'var(--red)' : 'var(--text)' }}>
+                  {item.icon}
+                  {item.label}
+                </button>
+              </div>
+            ))}
           </motion.div>
         )}
       </AnimatePresence>
 
-      {/* Reply / Edit bar */}
+      {/* ── Reply / Edit bar ── */}
       <AnimatePresence>
         {replyTo && (
-          <motion.div initial={{ y: 20, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: 20, opacity: 0 }}
-            className="px-4 py-2 border-t flex items-center gap-3" style={{ borderColor: 'var(--ig-border)', background: 'var(--ig-surface)' }}>
-            <Reply size={14} className="text-ig-accent shrink-0" />
+          <motion.div initial={{ y: 16, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: 16, opacity: 0 }}
+            className="px-4 py-2.5 flex items-center gap-3 shrink-0"
+            style={{ borderTop: '1px solid var(--border)', background: 'var(--surface)' }}>
+            <Reply size={14} style={{ color: 'var(--accent)' }} className="shrink-0" />
             <div className="flex-1 min-w-0">
-              <p className="text-xs text-ig-accent font-medium">Replying</p>
-              <p className="text-xs text-ig-muted truncate">{decryptedTexts[replyTo.id] ?? '(encrypted)'}</p>
+              <p className="text-xs font-semibold" style={{ color: 'var(--accent)' }}>Replying</p>
+              <p className="text-xs truncate" style={{ color: 'var(--muted)' }}>{decryptedTexts[replyTo.id] ?? '(encrypted)'}</p>
             </div>
-            <button onClick={() => setReplyTo(null)} className="text-ig-muted hover:text-white transition-colors">
-              <X size={16} />
+            <button onClick={() => setReplyTo(null)} className="transition-colors hover:text-white" style={{ color: 'var(--muted)' }}>
+              <X size={15} />
             </button>
           </motion.div>
         )}
         {editingMsg && (
-          <motion.div initial={{ y: 20, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: 20, opacity: 0 }}
-            className="px-4 py-2 border-t flex items-center gap-3" style={{ borderColor: 'var(--ig-border)', background: 'var(--ig-surface)' }}>
-            <Edit2 size={14} className="text-ig-accent shrink-0" />
-            <p className="flex-1 text-sm text-ig-accent">Editing message</p>
-            <button onClick={() => { setEditingMsg(null); setEditText(''); setText(''); }} className="text-ig-muted hover:text-white transition-colors">
-              <X size={16} />
+          <motion.div initial={{ y: 16, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: 16, opacity: 0 }}
+            className="px-4 py-2.5 flex items-center gap-3 shrink-0"
+            style={{ borderTop: '1px solid var(--border)', background: 'var(--surface)' }}>
+            <Edit2 size={14} style={{ color: 'var(--accent)' }} className="shrink-0" />
+            <p className="flex-1 text-sm" style={{ color: 'var(--accent)' }}>Editing message</p>
+            <button onClick={() => { setEditingMsg(null); setEditText(''); setText(''); }}
+              className="transition-colors hover:text-white" style={{ color: 'var(--muted)' }}>
+              <X size={15} />
             </button>
           </motion.div>
         )}
       </AnimatePresence>
 
-      {/* Input bar */}
-      <div className="px-3 py-3 border-t flex items-end gap-2 shrink-0" style={{ borderColor: 'var(--ig-border)', background: 'var(--ig-surface)' }}>
-        <button onClick={() => fileRef.current?.click()} className="p-2 rounded-full text-ig-muted hover:text-white transition-colors shrink-0 mb-0.5">
+      {/* ── Input bar ── */}
+      <div className="px-3 py-3 flex items-end gap-2 shrink-0"
+        style={{ borderTop: '1px solid var(--border)', background: 'var(--surface)' }}>
+        <button onClick={() => fileRef.current?.click()}
+          className="p-2.5 rounded-full transition-colors hover:bg-white/5 shrink-0 mb-0.5"
+          style={{ color: 'var(--muted)' }}>
           <Paperclip size={20} />
         </button>
         <input ref={fileRef} type="file" className="hidden" />
 
-        <div className="flex-1 flex items-end rounded-2xl border" style={{ borderColor: 'var(--ig-border)', background: 'var(--ig-elevated)' }}>
-          <textarea
-            ref={inputRef}
+        <div className="flex-1 flex items-end rounded-3xl overflow-hidden"
+          style={{ background: 'var(--elevated)', border: '1.5px solid var(--border)' }}>
+          <textarea ref={inputRef}
             value={editingMsg ? editText : text}
-            onChange={(e) => editingMsg ? setEditText(e.target.value) : setText(e.target.value)}
+            onChange={e => editingMsg ? setEditText(e.target.value) : setText(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder="Message..."
             rows={1}
-            className="flex-1 bg-transparent text-white text-sm px-4 py-2.5 outline-none resize-none max-h-32 overflow-y-auto placeholder:text-ig-muted"
-            style={{ minHeight: '42px', fontFamily: 'Inter, sans-serif' }}
+            className="flex-1 bg-transparent text-white text-sm px-4 py-2.5 outline-none resize-none overflow-y-auto"
+            style={{ minHeight: 44, maxHeight: 128, fontFamily: 'var(--font)', color: 'var(--text)' }}
           />
-          {/* E2E indicator */}
-          <div className="flex items-center pr-3 pb-2.5 text-ig-muted shrink-0">
-            <Lock size={12} />
+          <div className="flex items-center pr-3 pb-2.5 shrink-0">
+            <Lock size={11} style={{ color: 'var(--border-light)' }} />
           </div>
         </div>
 
-        <button
-          onClick={handleSend}
+        <button onClick={handleSend}
           disabled={sendMessage.isPending || editMessage.isPending || !(editingMsg ? editText : text).trim()}
-          className="p-2 rounded-full text-ig-accent hover:text-ig-accent/80 transition-colors disabled:opacity-30 shrink-0 mb-0.5"
-        >
+          className="p-2.5 rounded-full transition-colors shrink-0 mb-0.5 disabled:opacity-30"
+          style={{ color: 'var(--accent)' }}>
           <Send size={22} />
         </button>
       </div>
